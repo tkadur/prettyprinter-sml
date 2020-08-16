@@ -1,0 +1,9 @@
+library
+    signature DOC
+
+    structure Doc
+is
+    src/doc.sig
+    src/doc.sml
+
+    $/basis.cm
