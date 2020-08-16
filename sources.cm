@@ -1,9 +1,22 @@
 library
     signature DOC
+    signature SIMPLE_DOC_STREAM
 
     structure Doc
+    structure DocWidth
+    structure LayoutOptions
+    structure SimpleDocStream
 is
     src/doc.sig
     src/doc.sml
+
+    src/doc_width.sml
+
+    src/layout_options.sml
+
+    src/simple_doc_stream.sig
+    src/simple_doc_stream.sml
+
+    src/util.sml
 
     $/basis.cm

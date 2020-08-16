@@ -1,18 +1,10 @@
 structure Doc = struct
-  infixr 6 <> <+>
+  open DocWidth
+  open LayoutOptions
 
-  (**
-   * Maximum number of characters that fit in one line. The layout algorithms
-   * will try not to exceed the set limit by inserting line breaks when
-   * applicable (e.g. via `softline`).
-   *)
-  structure DocWidth = struct
-    datatype t
-      = Bounded of
-        { columns: int
-        }
-      | Unbounded
-  end
+  structure S = SimpleDocStream
+
+  infixr 6 <:> <+>
 
   datatype t
     (**
@@ -81,12 +73,6 @@ structure Doc = struct
     | WithColumn of int -> t
 
     (**
-     * React on the document's width.
-     * @see `column`.
-     *)
-    | WithDocWidth of DocWidth.t -> t
-
-    (**
      * React on the current nesting level.
      * @see `nesting`
      *)
@@ -94,7 +80,7 @@ structure Doc = struct
 
   (* TODO(tkadur): Semigroup and monoid instances *)
 
-  (* Really basic combinators that mostly just rename constructors *)
+  (* Basic stuff that mostly just renames constructors *)
 
   val empty = Empty
 
@@ -102,7 +88,7 @@ structure Doc = struct
 
   val flat_alt = FlatAlt
 
-  val op <> = Concat
+  val op <:> = Concat
 
   fun nest indentation doc =
     case indentation of
@@ -111,7 +97,7 @@ structure Doc = struct
 
   val with_column = WithColumn
 
-  val with_doc_width = WithDocWidth
+  val with_nesting = WithNesting
 
   (* Utility stuff *)
 
@@ -138,10 +124,10 @@ structure Doc = struct
     else if n = 1 then
       Char #" "
     else
-      String (String.implode (List.tabulate (n, fn _ => #" ")))
+      String (Util.spaces n)
 
   fun with_width doc f =
-    with_column (fn startCol => doc <> with_column (fn endCol => f (endCol - startCol)))
+    with_column (fn startCol => doc <:> with_column (fn endCol => f (endCol - startCol)))
 
   fun fill n doc = with_width doc (fn width => spaces (n - width))
 
@@ -149,7 +135,6 @@ structure Doc = struct
     with_width doc (fn width => if width > n then nest n line' else spaces (n - width))
 
   (* `group` *)
-
   local
     structure Flatten = struct
       datatype 'a result
@@ -184,7 +169,6 @@ structure Doc = struct
         | Nest { indentation, doc } => Nest { indentation = indentation, doc = flatten doc }
         | Union { primary, ... } => flatten primary
         | WithColumn f => WithColumn (flatten o f)
-        | WithDocWidth f => WithDocWidth (flatten o f)
         | WithNesting f => WithNesting (flatten o f)
 
       (**
@@ -218,7 +202,6 @@ structure Doc = struct
             map (fn doc' => Nest { indentation = indentation, doc = doc' }) (changes doc)
         | Union { primary, ... } => Flattened primary
         | WithColumn f => Flattened (WithColumn (flatten o f))
-        | WithDocWidth f => Flattened (WithDocWidth (flatten o f))
         | WithNesting f => Flattened (WithNesting (flatten o f))
     end
   in
@@ -243,21 +226,21 @@ structure Doc = struct
 
   (* Basic concatenation *)
 
-  fun doc1 <+> doc2 = doc1 <> Char #" " <> doc2
+  fun doc1 <+> doc2 = doc1 <:> Char #" " <:> doc2
 
   val hsep = concatWith (op <+>)
 
-  val vsep = concatWith (fn (doc1, doc2) => doc1 <> line <> doc2)
+  val vsep = concatWith (fn (doc1, doc2) => doc1 <:> line <:> doc2)
 
-  val fill_sep = concatWith (fn (doc1, doc2) => doc1 <> softline <> doc2)
+  val fill_sep = concatWith (fn (doc1, doc2) => doc1 <:> softline <:> doc2)
 
   val sep = group o vsep
 
-  val hcat = concatWith (op <>)
+  val hcat = concatWith (op <:>)
 
-  val vcat = concatWith (fn (doc1, doc2) => doc1 <> line' <> doc2)
+  val vcat = concatWith (fn (doc1, doc2) => doc1 <:> line' <:> doc2)
 
-  val fill_cat = concatWith (fn (doc1, doc2) => doc1 <> softline' <> doc2)
+  val fill_cat = concatWith (fn (doc1, doc2) => doc1 <:> softline' <:> doc2)
 
   val cat = group o vcat
 
@@ -269,27 +252,30 @@ structure Doc = struct
     | [c] => Char c
     | _ => String s
 
-  val string = vsep o List.map unsafe_string_without_newlines o String.fields (fn c => c = #"\n")
+  val string =
+    vsep
+      o List.map unsafe_string_without_newlines
+      o String.fields (fn c => c = #"\n")
 
   (* Indentation *)
 
   fun align doc =
-    with_column (fn col => WithNesting (fn nesting => nest (col - nesting) doc))
+    with_column (fn col => with_nesting (fn nesting => nest (col - nesting) doc))
 
   fun hang indentation doc = align (nest indentation doc)
 
-  fun indent indentation doc = hang indentation (spaces indentation <> doc)
+  fun indent indentation doc = hang indentation (spaces indentation <:> doc)
 
   (* Enclosing and separators *)
 
-  fun enclose { left, right, doc } = left <> doc <> right
+  fun enclose { left, right, doc } = left <:> doc <:> right
 
   local
     fun go punctuation docs =
       case docs of
         [] => []
       | [doc] => [doc]
-      | doc :: docs' => (doc <> punctuation) :: go punctuation docs'
+      | doc :: docs' => (doc <:> punctuation) :: go punctuation docs'
   in
     fun punctuate { punctuation, docs } = go punctuation docs
   end
@@ -299,14 +285,207 @@ structure Doc = struct
       case docs of
         [] => raise Fail "Impossible"
       | [doc] => doc
-      | doc :: docs' => doc <> sep <> intercalateSep sep docs'
+      | doc :: docs' => doc <:> sep <:> intercalateSep sep docs'
   in
     fun encloseSep { left, right, sep, docs } =
       case docs of
-        [] => left <> right
-      | _ => left <> intercalateSep sep docs <> right
+        [] => left <:> right
+      | _ => left <:> intercalateSep sep docs <:> right
   end
 
   (* TODO(tkadur): fusion *)
 
+  (* Layout *)
+
+  type fitting_args
+    = { line_indent: int
+      , curr_col: int
+      , alt_initial_indent: int option
+      , doc_stream: SimpleDocStream.t
+      }
+
+  type fitting_predicate = fitting_args -> bool
+
+  type layout_pipeline = { nesting_level: int, doc: t } list
+
+  fun layout_wadler_leijen fits doc_width doc =
+    let
+      fun initial_indentation doc_stream =
+        case doc_stream of
+          S.Line { next_line_indent, ... } => SOME next_line_indent
+        | _ => NONE
+
+      (**
+       * Select the better fitting of two documents:
+       * `primary` if it fits, otherwise `alternative`.
+
+       * The fit of `alternative` is _not_ checked! It is ultimately the user's
+       * responsibility to provide an alternative that can fit the page even when
+       * `primary` doesn't.
+       *)
+      fun select_nicer { curr_nesting_level, curr_col } { primary, alternative } =
+        if fits
+          { line_indent = curr_nesting_level
+          , curr_col = curr_col
+          , alt_initial_indent = initial_indentation alternative
+          , doc_stream = primary
+          } then
+          primary
+        else
+          alternative
+
+      (**
+       * Preconditions:
+       *  - current column > current nesting level
+       *  - current column - current indentation = number of chars in line
+       *)
+      fun best (curr as { curr_nesting_level, curr_col }) layout_pipeline =
+        case layout_pipeline of
+          [] => S.Empty
+        | { nesting_level, doc } :: layout_pipeline' =>
+          ( case doc of
+              Failure => S.Failure
+            | Empty => best curr layout_pipeline'
+            | Char c =>
+                S.Char
+                  (c
+                  , best
+                      { curr_nesting_level = curr_nesting_level
+                      , curr_col = curr_col + 1
+                      }
+                      layout_pipeline'
+                  )
+            | String s =>
+                S.String
+                  (s
+                  , best
+                      { curr_nesting_level = curr_nesting_level
+                      , curr_col = curr_col + String.size s
+                      }
+                      layout_pipeline'
+                  )
+            | Line =>
+                let
+                  val doc_stream =
+                    best
+                      { curr_nesting_level = nesting_level, curr_col = nesting_level } layout_pipeline'
+
+                  val nesting_level' = case doc_stream of
+                    S.Empty => 0
+                  | S.Line _ => 0
+                  | _ => nesting_level
+                in
+                  S.Line { next_line_indent = nesting_level', doc_stream = doc_stream }
+                end
+            | FlatAlt { primary, ... } =>
+                best
+                  curr
+                  ({ nesting_level = nesting_level, doc = primary }
+                    :: layout_pipeline')
+            | Concat (doc1, doc2) =>
+                best
+                  curr
+                  ({ nesting_level = nesting_level, doc = doc1 }
+                    :: { nesting_level = nesting_level, doc = doc2 }
+                    :: layout_pipeline')
+            | Nest { indentation, doc } =>
+                best
+                  curr
+                  ({ nesting_level = nesting_level + indentation, doc = doc }
+                    :: layout_pipeline')
+            | Union { primary, alternative } =>
+                let
+                  val primary_stream =
+                    best
+                      curr
+                      ({ nesting_level = nesting_level, doc = primary }
+                        :: layout_pipeline')
+                  val alternative_stream =
+                    best
+                      curr
+                      ({ nesting_level = nesting_level, doc = alternative }
+                        :: layout_pipeline')
+                in
+                  select_nicer
+                    curr
+                    { primary = primary_stream, alternative = alternative_stream }
+                end
+            | WithColumn f =>
+                best
+                curr
+                ({ nesting_level = nesting_level, doc = f curr_col}
+                  :: layout_pipeline')
+            | WithNesting f =>
+                best
+                curr
+                ({ nesting_level = nesting_level, doc = f nesting_level}
+                  :: layout_pipeline')
+          )
+    in
+      best
+        { curr_nesting_level = 0, curr_col = 0 }
+        [{ nesting_level = 0, doc = doc }]
+    end
+
+  local
+    (* TODO(tkadur): document this *)
+    fun fails_on_first_line doc_stream =
+      case doc_stream of
+        S.Failure => true
+      | S.Empty => false
+      | S.Char (_, doc_stream) => fails_on_first_line doc_stream
+      | S.String (_, doc_stream) => fails_on_first_line doc_stream
+      | S.Line _ => false
+  in
+    val layout_unbounded =
+      layout_wadler_leijen
+        (fn ({ doc_stream, ... }: fitting_args) =>
+            not (fails_on_first_line doc_stream))
+        Unbounded
+  end
+
+  fun layout (LayoutOptions { doc_width }) doc =
+    case doc_width of
+      Unbounded => layout_unbounded doc
+    | Bounded { line_length } =>
+      let
+        fun fits { line_indent, curr_col, alt_initial_indent, doc_stream } =
+          let
+            val available_width = line_length + line_indent - curr_col
+
+            (* TODO(tkadur): document the purpose of this *)
+            val min_nesting_level =
+              case alt_initial_indent of
+                (* The alternate could be a (less wide) hanging layout. If so
+                 * let's check the primary a bit more thoroughly so we don't
+                 * miss a potentially better fitting alternate.
+                 *)
+                SOME indent => Int.min (indent, curr_col)
+                (* The alternate definitely isn't a hanging layout. Let's check
+                 * the primary with the same min_nesting_level that any subsequent
+                 * lines with the same indentation use.
+                 *)
+              | NONE => curr_col
+
+            fun go width doc_stream =
+              if width < 0 then
+                false
+              else
+                case doc_stream of
+                  S.Failure => false
+                | S.Empty => true
+                | S.Char (_, doc_stream) => go (width - 1) doc_stream
+                | S.String (s, doc_stream) =>
+                  go (width - String.size s) doc_stream
+                | S.Line { next_line_indent, doc_stream } =>
+                  if min_nesting_level < next_line_indent then
+                    go (line_length - next_line_indent) doc_stream
+                  else
+                    true
+          in
+            go available_width doc_stream
+          end
+      in
+        layout_wadler_leijen fits doc_width doc
+      end
 end
