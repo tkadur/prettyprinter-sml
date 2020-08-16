@@ -1,3 +1,3 @@
 signature DOC = sig
-  type doc
+  type t
 end
