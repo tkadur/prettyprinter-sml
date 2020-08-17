@@ -1,1 +1,1 @@
-A (slightly trimmed-down) port of the Haskell library [https://github.com/quchen/prettyprinter](prettyprinter) to Standard ML.
+A (slightly trimmed-down) port of the Haskell library [`prettyprinter`](https://github.com/quchen/prettyprinter) to Standard ML.
