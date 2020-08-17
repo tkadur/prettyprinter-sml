@@ -9,5 +9,6 @@ signature SIMPLE_DOC_STREAM = sig
       , doc_stream: t
       }
 
+  (** Renders to a string *)
   val render: t -> string
 end

@@ -1,4 +1,4 @@
-structure SimpleDocStream = struct
+structure SimpleDocStream :> SIMPLE_DOC_STREAM = struct
   datatype t
     = Failure
     | Empty
@@ -17,7 +17,7 @@ structure SimpleDocStream = struct
       | Char (c, doc_stream') => String.str c :: go doc_stream'
       | String (s, doc_stream') => s :: go doc_stream'
       | Line { next_line_indent, doc_stream = doc_stream'} =>
-          "\n" :: Util.spaces next_line_indent :: go doc_stream'
+          "\n" :: Internal.Util.spaces next_line_indent :: go doc_stream'
   in
     val render = String.concat o go
   end

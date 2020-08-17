@@ -17,6 +17,6 @@ is
     src/simple_doc_stream.sig
     src/simple_doc_stream.sml
 
-    src/util.sml
+    src/internal.sml
 
     $/basis.cm

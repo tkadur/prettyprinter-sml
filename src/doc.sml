@@ -1,4 +1,4 @@
-structure Doc = struct
+structure Doc :> DOC = struct
   open DocWidth
   open LayoutOptions
 
@@ -101,10 +101,11 @@ structure Doc = struct
 
   (* Utility stuff *)
 
-  fun concatWith f docs =
+  (* Oh no, the value restriction! (later on) *)
+  fun concat_with f (docs: t list) =
     case docs of
       [] => empty
-    | doc :: docs' => List.foldl f doc docs'
+    | _ => Internal.Util.List.foldr1 f docs
 
   (* Line breaks *)
 
@@ -124,14 +125,16 @@ structure Doc = struct
     else if n = 1 then
       Char #" "
     else
-      String (Util.spaces n)
+      String (Internal.Util.spaces n)
+
+  val space = spaces 1
 
   fun with_width doc f =
     with_column (fn startCol => doc <:> with_column (fn endCol => f (endCol - startCol)))
 
   fun fill n doc = with_width doc (fn width => spaces (n - width))
 
-  fun fillBreak n doc =
+  fun fill_break n doc =
     with_width doc (fn width => if width > n then nest n line' else spaces (n - width))
 
   (* `group` *)
@@ -228,23 +231,28 @@ structure Doc = struct
 
   fun doc1 <+> doc2 = doc1 <:> Char #" " <:> doc2
 
-  val hsep = concatWith (op <+>)
+  val hsep = concat_with (op <+>)
 
-  val vsep = concatWith (fn (doc1, doc2) => doc1 <:> line <:> doc2)
+  val vsep = concat_with (fn (doc1, doc2) => doc1 <:> line <:> doc2)
 
-  val fill_sep = concatWith (fn (doc1, doc2) => doc1 <:> softline <:> doc2)
+  val fill_sep = concat_with (fn (doc1, doc2) => doc1 <:> softline <:> doc2)
 
   val sep = group o vsep
 
-  val hcat = concatWith (op <:>)
+  val hcat = concat_with (op <:>)
 
-  val vcat = concatWith (fn (doc1, doc2) => doc1 <:> line' <:> doc2)
+  val vcat = concat_with (fn (doc1, doc2) => doc1 <:> line' <:> doc2)
 
-  val fill_cat = concatWith (fn (doc1, doc2) => doc1 <:> softline' <:> doc2)
+  val fill_cat = concat_with (fn (doc1, doc2) => doc1 <:> softline' <:> doc2)
 
   val cat = group o vcat
 
-  (* Converting from strings *)
+  (* Converting from chars/strings *)
+
+  fun char c =
+    case c of
+      #"\n" => raise Fail "char does not accept newlines. Consider using line instead."
+    | _ => Char c
 
   fun unsafe_string_without_newlines s =
     case String.explode s of
@@ -281,16 +289,15 @@ structure Doc = struct
   end
 
   local
-    fun intercalateSep sep docs =
+    fun zip_with_seps sep docs =
       case docs of
-        [] => raise Fail "Impossible"
-      | [doc] => doc
-      | doc :: docs' => doc <:> sep <:> intercalateSep sep docs'
+        [] => []
+      | doc :: docs' => (sep <:> doc) :: zip_with_seps sep docs'
   in
-    fun encloseSep { left, right, sep, docs } =
+    fun enclose_sep { left, right, sep, docs } =
       case docs of
         [] => left <:> right
-      | _ => left <:> intercalateSep sep docs <:> right
+      | doc :: docs' => cat ((left <:> doc) :: zip_with_seps sep docs' @ [right])
   end
 
   (* TODO(tkadur): fusion *)
